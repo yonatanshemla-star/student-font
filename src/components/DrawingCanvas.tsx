@@ -1,5 +1,17 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { RotateCcw, Trash2, Eye, EyeOff, ChevronRight, ChevronLeft, Check } from 'lucide-react';
+import {
+  RotateCcw,
+  Trash2,
+  Eye,
+  EyeOff,
+  ChevronRight,
+  ChevronLeft,
+  Check,
+  Plus,
+  Copy,
+  PenTool,
+  ShieldAlert,
+} from 'lucide-react';
 import type { CharacterDef, Point, Stroke } from '../types';
 import {
   CANVAS_SIZE,
@@ -11,8 +23,13 @@ import {
 
 interface DrawingCanvasProps {
   character: CharacterDef;
-  strokes: Stroke[];
-  onStrokesChange: (strokes: Stroke[]) => void;
+  variations: Stroke[][]; // 1 to 5 variations
+  activeVariationIndex: number;
+  onActiveVariationIndexChange: (idx: number) => void;
+  onStrokesChange: (variationIndex: number, strokes: Stroke[]) => void;
+  onAddVariation: () => void;
+  onDeleteVariation: (idx: number) => void;
+  onCopyFromVariation: (fromIdx: number, toIdx: number) => void;
   onNext: () => void;
   onPrev: () => void;
   hasNext: boolean;
@@ -23,8 +40,13 @@ interface DrawingCanvasProps {
 
 export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   character,
-  strokes,
+  variations,
+  activeVariationIndex,
+  onActiveVariationIndexChange,
   onStrokesChange,
+  onAddVariation,
+  onDeleteVariation,
+  onCopyFromVariation,
   onNext,
   onPrev,
   hasNext,
@@ -38,8 +60,20 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [undoStack, setUndoStack] = useState<Stroke[][]>([]);
   const [redoStack, setRedoStack] = useState<Stroke[][]>([]);
   const [showGhost, setShowGhost] = useState(true);
+  const [palmRejection, setPalmRejection] = useState(false); // iPad Apple Pencil Palm Rejection
+  const [isPenDetected, setIsPenDetected] = useState(false);
 
-  // Redraw canvas whenever strokes, currentStroke, or ghost toggle changes
+  // Current active strokes
+  const currentStrokes = variations[activeVariationIndex] || [];
+
+  // Reset undo/redo when character or variation changes
+  useEffect(() => {
+    setUndoStack([]);
+    setRedoStack([]);
+    setCurrentStroke([]);
+  }, [character.id, activeVariationIndex]);
+
+  // Redraw canvas
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -51,31 +85,30 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // Clear background
+    // Background
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-    // Grid lines (subtle)
-    ctx.strokeStyle = '#334155';
+    // Subtle guidelines
     ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
 
     // Ascender guide (ל)
-    ctx.strokeStyle = '#38bdf8'; // Sky blue
+    ctx.strokeStyle = '#38bdf8';
+    ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(30, CANVAS_ASCENDER);
     ctx.lineTo(CANVAS_SIZE - 30, CANVAS_ASCENDER);
     ctx.stroke();
 
     // Cap-height guide (Top of standard letters)
-    ctx.strokeStyle = '#10b981'; // Emerald
+    ctx.strokeStyle = '#10b981';
     ctx.beginPath();
     ctx.moveTo(30, CANVAS_CAP_HEIGHT);
     ctx.lineTo(CANVAS_SIZE - 30, CANVAS_CAP_HEIGHT);
     ctx.stroke();
 
     // Baseline guide (Bottom of standard letters)
-    ctx.strokeStyle = '#6366f1'; // Indigo
+    ctx.strokeStyle = '#6366f1';
     ctx.lineWidth = 2;
     ctx.setLineDash([]);
     ctx.beginPath();
@@ -84,7 +117,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     ctx.stroke();
 
     // Descender guide (Bottom of ן, ך, ק)
-    ctx.strokeStyle = '#f43f5e'; // Rose
+    ctx.strokeStyle = '#f43f5e';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -92,11 +125,10 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     ctx.lineTo(CANVAS_SIZE - 30, CANVAS_DESCENDER);
     ctx.stroke();
 
-    // Reset line dash
     ctx.setLineDash([]);
 
     // Ghost letter (reference)
-    if (showGhost && strokes.length === 0 && currentStroke.length === 0) {
+    if (showGhost && currentStrokes.length === 0 && currentStroke.length === 0) {
       ctx.font = '220px "Segoe UI", Rubik, Arial';
       ctx.fillStyle = 'rgba(148, 163, 184, 0.12)';
       ctx.textAlign = 'center';
@@ -104,31 +136,42 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       ctx.fillText(character.char, CANVAS_SIZE / 2, CANVAS_BASELINE);
     }
 
-    // Helper to render a stroke
+    // Dynamic Pressure-sensitive stroke renderer
     const drawStroke = (stroke: Stroke) => {
       if (stroke.length === 0) return;
-      ctx.beginPath();
-      ctx.strokeStyle = '#f8fafc';
+
       ctx.fillStyle = '#f8fafc';
-      ctx.lineWidth = strokeWidth;
+      ctx.strokeStyle = '#f8fafc';
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
       if (stroke.length === 1) {
-        ctx.arc(stroke[0].x, stroke[0].y, strokeWidth / 2, 0, Math.PI * 2);
+        const p = stroke[0];
+        const pFactor = 0.4 + (p.pressure || 0.5) * 1.2;
+        const r = Math.max((strokeWidth / 2) * pFactor, 2);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
         ctx.fill();
         return;
       }
 
-      ctx.moveTo(stroke[0].x, stroke[0].y);
+      // Draw segments with variable width
       for (let i = 1; i < stroke.length; i++) {
-        ctx.lineTo(stroke[i].x, stroke[i].y);
+        const p1 = stroke[i - 1];
+        const p2 = stroke[i];
+        const pressure = p2.pressure ?? 0.5;
+        const currentLineWidth = Math.max(3, strokeWidth * (0.35 + pressure * 1.3));
+
+        ctx.lineWidth = currentLineWidth;
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
       }
-      ctx.stroke();
     };
 
-    // Draw completed strokes
-    strokes.forEach(drawStroke);
+    // Draw saved strokes
+    currentStrokes.forEach(drawStroke);
 
     // Draw active stroke
     if (currentStroke.length > 0) {
@@ -136,9 +179,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
 
     ctx.restore();
-  }, [strokes, currentStroke, showGhost, strokeWidth, character]);
+  }, [currentStrokes, currentStroke, showGhost, strokeWidth, character]);
 
-  // Setup canvas high-DPI scaling
+  // Canvas scaling
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -150,21 +193,37 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     redraw();
   }, [redraw]);
 
-  // Get pointer coordinates relative to canvas
+  // Pointer position & pressure calculation
   const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const scaleX = CANVAS_SIZE / rect.width;
     const scaleY = CANVAS_SIZE / rect.height;
+
+    // Stylus / Apple Pencil pressure (0.0 to 1.0)
+    let pressure = e.pressure;
+    if (e.pointerType === 'pen' && (pressure === undefined || pressure === 0)) {
+      pressure = 0.5;
+    }
+
     return {
       x: (e.clientX - rect.left) * scaleX,
       y: (e.clientY - rect.top) * scaleY,
-      pressure: e.pressure || 0.5,
+      pressure: pressure !== undefined ? pressure : 0.5,
     };
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Palm Rejection: If enabled and stylus is in use, ignore touch/finger events
+    if (palmRejection && e.pointerType === 'touch') {
+      return;
+    }
+
+    if (e.pointerType === 'pen') {
+      setIsPenDetected(true);
+    }
+
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setIsDrawing(true);
     const p = getCanvasPoint(e);
@@ -173,6 +232,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return;
+    if (palmRejection && e.pointerType === 'touch') return;
     const p = getCanvasPoint(e);
     setCurrentStroke(prev => [...prev, p]);
   };
@@ -187,41 +247,40 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     }
 
     if (currentStroke.length > 0) {
-      const nextStrokes = [...strokes, currentStroke];
-      setUndoStack(prev => [...prev, strokes]);
-      setRedoStack([]); // Clear redo
-      onStrokesChange(nextStrokes);
+      const nextStrokes = [...currentStrokes, currentStroke];
+      setUndoStack(prev => [...prev, currentStrokes]);
+      setRedoStack([]);
+      onStrokesChange(activeVariationIndex, nextStrokes);
       setCurrentStroke([]);
     }
   };
 
   const handleUndo = () => {
-    if (undoStack.length === 0 && strokes.length === 0) return;
+    if (undoStack.length === 0 && currentStrokes.length === 0) return;
     const previous = undoStack[undoStack.length - 1] || [];
-    setRedoStack(prev => [...prev, strokes]);
+    setRedoStack(prev => [...prev, currentStrokes]);
     setUndoStack(prev => prev.slice(0, -1));
-    onStrokesChange(previous);
+    onStrokesChange(activeVariationIndex, previous);
   };
 
   const handleRedo = () => {
     if (redoStack.length === 0) return;
     const next = redoStack[redoStack.length - 1];
-    setUndoStack(prev => [...prev, strokes]);
+    setUndoStack(prev => [...prev, currentStrokes]);
     setRedoStack(prev => prev.slice(0, -1));
-    onStrokesChange(next);
+    onStrokesChange(activeVariationIndex, next);
   };
 
   const handleClear = () => {
-    if (strokes.length === 0) return;
-    setUndoStack(prev => [...prev, strokes]);
+    if (currentStrokes.length === 0) return;
+    setUndoStack(prev => [...prev, currentStrokes]);
     setRedoStack([]);
-    onStrokesChange([]);
+    onStrokesChange(activeVariationIndex, []);
   };
 
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // If user is typing in an input or textarea, don't trigger canvas shortcuts
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
@@ -239,50 +298,56 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [hasNext, hasPrev, strokes, undoStack, redoStack]);
+  }, [hasNext, hasPrev, currentStrokes, undoStack, redoStack]);
 
-  const isDrawn = strokes.length > 0;
+  const isDrawn = currentStrokes.length > 0;
+  const totalVariationsDrawn = variations.filter(v => v && v.length > 0).length;
 
   return (
-    <div className="flex flex-col items-center select-none">
+    <div className="flex flex-col items-center select-none w-full max-w-[460px]">
       {/* Top Header Card */}
-      <div className="w-full max-w-[440px] flex items-center justify-between bg-slate-800/90 border border-slate-700/80 px-4 py-3 rounded-2xl mb-4 backdrop-blur-md shadow-xl">
+      <div className="w-full flex items-center justify-between bg-slate-800/90 border border-slate-700/80 px-4 py-2.5 rounded-2xl mb-3 backdrop-blur-md shadow-xl">
         <button
           onClick={onPrev}
           disabled={!hasPrev}
-          className={`p-2 rounded-xl transition flex items-center gap-1 text-sm font-medium ${
+          className={`p-2 rounded-xl transition flex items-center gap-1 text-xs font-semibold ${
             hasPrev
               ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
               : 'opacity-40 cursor-not-allowed text-slate-500'
           }`}
           title="אות קודמת (חץ ימינה)"
         >
-          <ChevronRight className="w-5 h-5" />
+          <ChevronRight className="w-4 h-4" />
           <span>הקודם</span>
         </button>
 
         <div className="flex flex-col items-center">
           <div className="flex items-center gap-2">
             <span className="text-3xl font-extrabold text-white tracking-wide">{character.char}</span>
-            <span className="text-sm font-semibold text-indigo-400 bg-indigo-950/60 border border-indigo-700/50 px-2.5 py-0.5 rounded-full">
+            <span className="text-xs font-bold text-indigo-400 bg-indigo-950/60 border border-indigo-700/50 px-2.5 py-0.5 rounded-full">
               {character.name}
             </span>
             {isDrawn && (
-              <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-600/40 px-2 py-0.5 rounded-full">
-                <Check className="w-3.5 h-3.5" />
-                צויר
+              <span className="flex items-center gap-1 text-[11px] text-emerald-400 bg-emerald-950/60 border border-emerald-600/40 px-2 py-0.5 rounded-full">
+                <Check className="w-3 h-3 stroke-[3]" />
+                {totalVariationsDrawn} וריאציות
+              </span>
+            )}
+            {isPenDetected && (
+              <span className="text-[10px] text-sky-400 bg-sky-950/60 border border-sky-600/40 px-2 py-0.5 rounded-full font-medium">
+                עט פעיל
               </span>
             )}
           </div>
           {character.sampleHint && (
-            <span className="text-xs text-slate-400 mt-0.5">דוגמה למילה: <strong>{character.sampleHint}</strong></span>
+            <span className="text-[11px] text-slate-400 mt-0.5">דוגמה למילה: <strong>{character.sampleHint}</strong></span>
           )}
         </div>
 
         <button
           onClick={onNext}
           disabled={!hasNext}
-          className={`p-2 rounded-xl transition flex items-center gap-1 text-sm font-medium ${
+          className={`p-2 rounded-xl transition flex items-center gap-1 text-xs font-semibold ${
             hasNext
               ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20'
               : 'opacity-40 cursor-not-allowed text-slate-500'
@@ -290,8 +355,79 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           title="אות הבאה (חץ שמאלה)"
         >
           <span>הבא</span>
-          <ChevronLeft className="w-5 h-5" />
+          <ChevronLeft className="w-4 h-4" />
         </button>
+      </div>
+
+      {/* 3-5 Variations Bar */}
+      <div className="w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-2.5 mb-3 backdrop-blur-md">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+            <PenTool className="w-3.5 h-3.5 text-indigo-400" />
+            <span>וריאציות כתב-יד לאות זו (3–5 מומלץ):</span>
+          </div>
+
+          {variations.length < 5 && (
+            <button
+              onClick={onAddVariation}
+              className="text-[11px] flex items-center gap-1 px-2.5 py-1 bg-indigo-600/40 hover:bg-indigo-600 text-indigo-200 hover:text-white rounded-lg border border-indigo-500/40 transition font-medium"
+              title="הוסף וריאציה נוספת (עד 5)"
+            >
+              <Plus className="w-3 h-3" />
+              <span>הוסף וריאציה</span>
+            </button>
+          )}
+        </div>
+
+        {/* Variation Selector Pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {variations.map((vStrokes, idx) => {
+            const isActive = idx === activeVariationIndex;
+            const hasDrawing = vStrokes && vStrokes.length > 0;
+
+            return (
+              <div key={idx} className="flex items-center">
+                <button
+                  onClick={() => onActiveVariationIndexChange(idx)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition ${
+                    isActive
+                      ? 'bg-indigo-600 border-indigo-400 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-500/40'
+                      : hasDrawing
+                      ? 'bg-slate-800 border-emerald-600/40 text-emerald-300 hover:bg-slate-700'
+                      : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:bg-slate-700'
+                  }`}
+                >
+                  <span>גרסה {idx + 1}</span>
+                  {hasDrawing && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                  )}
+                </button>
+
+                {variations.length > 1 && (
+                  <button
+                    onClick={() => onDeleteVariation(idx)}
+                    className="p-1 text-slate-500 hover:text-rose-400 transition mr-0.5"
+                    title={`מחק וריאציה ${idx + 1}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Duplicate/Copy option */}
+          {activeVariationIndex > 0 && variations[0]?.length > 0 && (
+            <button
+              onClick={() => onCopyFromVariation(0, activeVariationIndex)}
+              className="text-[11px] text-slate-400 hover:text-indigo-300 flex items-center gap-1 px-2 py-1 bg-slate-800/80 hover:bg-slate-800 rounded-lg border border-slate-700 transition"
+              title="העתק מגרסה 1 ועשה שינוי קטן"
+            >
+              <Copy className="w-3 h-3" />
+              <span>העתק מ-1</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Main Drawing Canvas Container */}
@@ -308,8 +444,8 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
           />
         </div>
 
-        {/* Legend of Guidelines */}
-        <div className="flex items-center justify-center gap-3 mt-3 text-[11px] text-slate-400">
+        {/* Legend */}
+        <div className="flex items-center justify-center gap-3 mt-2 text-[11px] text-slate-400">
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-0.5 bg-sky-400 inline-block rounded" /> גובה ל'
           </span>
@@ -320,26 +456,40 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             <span className="w-2.5 h-0.5 bg-indigo-500 inline-block rounded" /> קו בסיס
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2.5 h-0.5 bg-rose-400 inline-block rounded" /> אותיות יורדות (ן, ך, ק)
+            <span className="w-2.5 h-0.5 bg-rose-400 inline-block rounded" /> יורדות (ן,ך,ק)
           </span>
         </div>
       </div>
 
-      {/* Controls Toolbar */}
-      <div className="w-full max-w-[440px] flex items-center justify-between bg-slate-800/90 border border-slate-700/80 p-3 rounded-2xl mt-4 backdrop-blur-md">
+      {/* Controls & iPad Palm Rejection Toolbar */}
+      <div className="w-full flex items-center justify-between bg-slate-800/90 border border-slate-700/80 p-3 rounded-2xl mt-3 backdrop-blur-md">
         {/* Stroke Width Slider */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-300 font-medium">עובי עט:</span>
+          <span className="text-xs text-slate-300 font-medium">עובי:</span>
           <input
             type="range"
             min={3}
             max={18}
             value={strokeWidth}
             onChange={e => onStrokeWidthChange(Number(e.target.value))}
-            className="w-24 accent-indigo-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
+            className="w-20 accent-indigo-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
           />
           <span className="text-xs font-mono text-slate-400 w-4">{strokeWidth}</span>
         </div>
+
+        {/* Stylus Palm Rejection Mode */}
+        <button
+          onClick={() => setPalmRejection(!palmRejection)}
+          className={`px-2 py-1 rounded-xl text-[11px] font-semibold border flex items-center gap-1 transition ${
+            palmRejection
+              ? 'bg-amber-600/30 text-amber-300 border-amber-500/50 shadow-sm'
+              : 'bg-slate-700/50 text-slate-400 border-transparent hover:bg-slate-700'
+          }`}
+          title="מניעת מגע כף יד (מושלם לאייפד עם Apple Pencil)"
+        >
+          <ShieldAlert className="w-3.5 h-3.5" />
+          <span>{palmRejection ? 'נעילת עט פעילה' : 'מניעת מגע יד'}</span>
+        </button>
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1.5">
@@ -355,7 +505,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
           <button
             onClick={handleUndo}
-            disabled={undoStack.length === 0 && strokes.length === 0}
+            disabled={undoStack.length === 0 && currentStrokes.length === 0}
             className="p-2 rounded-xl bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed text-slate-200 transition"
             title="בטל קו אחרון (Ctrl+Z)"
           >
@@ -364,9 +514,9 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
           <button
             onClick={handleClear}
-            disabled={strokes.length === 0}
+            disabled={currentStrokes.length === 0}
             className="p-2 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/40 text-rose-300 disabled:opacity-40 disabled:cursor-not-allowed transition"
-            title="נקה את כל האות"
+            title="נקה וריאציה זו"
           >
             <Trash2 className="w-4 h-4" />
           </button>

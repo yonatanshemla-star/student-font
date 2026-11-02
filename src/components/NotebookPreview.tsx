@@ -4,6 +4,7 @@ import { BookOpen, Sliders, Sparkles, Printer, CheckCircle2, FileText } from 'lu
 interface NotebookPreviewProps {
   fontLoaded: boolean;
   fontFamily: string;
+  variantCount: number;
   onGenerateFont: () => void;
   drawnCharsCount: number;
 }
@@ -11,6 +12,7 @@ interface NotebookPreviewProps {
 export const NotebookPreview: React.FC<NotebookPreviewProps> = ({
   fontLoaded,
   fontFamily,
+  variantCount,
   onGenerateFont,
   drawnCharsCount,
 }) => {
@@ -128,11 +130,21 @@ export const NotebookPreview: React.FC<NotebookPreviewProps> = ({
                 const rot = ((seed % 7) - 3) * 0.35; // -1 deg to +1 deg
                 const offsetY = ((seed % 5) - 2) * 0.4; // -0.8px to +0.8px
 
+                // Organic variation cycling
+                const variantIdx = variantCount > 1
+                  ? (((lineIndex * 31 + charIndex * 17 + char.charCodeAt(0)) % variantCount) + 1)
+                  : 1;
+
+                const charFont = fontLoaded
+                  ? `'${fontFamily}_V${variantIdx}', '${fontFamily}', 'Rubik', sans-serif`
+                  : "'Rubik', sans-serif";
+
                 return (
                   <span
                     key={charIndex}
                     style={{
                       display: 'inline-block',
+                      fontFamily: charFont,
                       transform: `rotate(${rot}deg) translateY(${offsetY}px)`,
                       transformOrigin: 'bottom center',
                     }}
@@ -157,10 +169,17 @@ export const NotebookPreview: React.FC<NotebookPreviewProps> = ({
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-400">סטטוס פונט כתב יד</span>
             {fontLoaded ? (
-              <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-700/40 px-2 py-0.5 rounded-full font-medium">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                פונט פעיל ומוטען
-              </span>
+              <div className="flex items-center gap-1.5">
+                {variantCount > 1 && (
+                  <span className="text-[11px] text-indigo-300 bg-indigo-950/70 border border-indigo-700/50 px-2 py-0.5 rounded-full font-bold">
+                    {variantCount} וריאציות
+                  </span>
+                )}
+                <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-950/60 border border-emerald-700/40 px-2 py-0.5 rounded-full font-medium">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  פעיל
+                </span>
+              </div>
             ) : (
               <span className="text-xs text-amber-400 bg-amber-950/60 border border-amber-700/40 px-2 py-0.5 rounded-full font-medium">
                 טרם הופק פונט

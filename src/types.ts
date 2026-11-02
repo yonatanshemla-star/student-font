@@ -19,8 +19,9 @@ export interface CharacterDef {
 export interface CharacterData {
   char: string;
   unicode: number;
-  strokes: Stroke[];
-  advanceWidth?: number; // custom width if adjusted
+  strokes?: Stroke[]; // Legacy single-variation support
+  variations?: Stroke[][]; // Up to 5 variations per character: [var1, var2, var3, ...]
+  advanceWidth?: number;
   updatedAt: number;
 }
 
@@ -31,4 +32,5 @@ export interface FontSettings {
   ascender: number;
   descender: number;
   strokeWidth: number;
+  usePressureSensitivity?: boolean;
 }

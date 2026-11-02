@@ -39,17 +39,42 @@ function curve(
   return stroke;
 }
 
+function createVariant(baseStrokes: Stroke[], slant: number, scaleX: number, scaleY: number, wobbleSeed: number): Stroke[] {
+  const cx = 200;
+  const cy = 200;
+  return baseStrokes.map(stroke => {
+    return stroke.map((p, i) => {
+      const dx = (p.x - cx) * scaleX;
+      const dy = (p.y - cy) * scaleY;
+      const slantedX = dx + dy * slant;
+      const wobble = Math.sin((i + wobbleSeed) * 0.9) * 1.6;
+      const pressWobble = ((i % 4) - 1.5) * 0.08;
+      return {
+        x: cx + slantedX + wobble,
+        y: cy + dy + wobble * 0.4,
+        pressure: Math.max(0.25, Math.min(0.9, (p.pressure || 0.5) + pressWobble)),
+      };
+    });
+  });
+}
+
 export function generateDemoCharacters(): Record<string, CharacterData> {
   const now = Date.now();
   const demo: Record<string, CharacterData> = {};
 
-  const add = (id: string, strokes: Stroke[]) => {
+  const add = (id: string, baseStrokes: Stroke[]) => {
     const def = HEBREW_CHARACTERS.find(c => c.id === id);
     if (!def) return;
+
+    const var1 = baseStrokes;
+    const var2 = createVariant(baseStrokes, 0.06, 0.97, 1.02, 3);
+    const var3 = createVariant(baseStrokes, -0.05, 1.03, 0.98, 7);
+
     demo[id] = {
       char: def.char,
       unicode: def.unicode,
-      strokes,
+      strokes: var1,
+      variations: [var1, var2, var3],
       updatedAt: now,
     };
   };

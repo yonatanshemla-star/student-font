@@ -20,8 +20,17 @@ export const CharacterGrid: React.FC<CharacterGridProps> = ({
     c => activeCategory === 'all' || c.category === activeCategory
   );
 
+  const getVariationCount = (id: string): number => {
+    const data = characters[id];
+    if (!data) return 0;
+    if (data.variations && data.variations.length > 0) {
+      return data.variations.filter(v => v && v.length > 0).length;
+    }
+    return data.strokes && data.strokes.length > 0 ? 1 : 0;
+  };
+
   const completedCount = HEBREW_CHARACTERS.filter(
-    c => characters[c.id]?.strokes?.length > 0
+    c => getVariationCount(c.id) > 0
   ).length;
 
   const totalCount = HEBREW_CHARACTERS.length;
@@ -33,7 +42,7 @@ export const CharacterGrid: React.FC<CharacterGridProps> = ({
       <div className="flex items-center justify-between mb-3">
         <div>
           <h3 className="text-base font-bold text-white">רשימת האותיות והתווים</h3>
-          <p className="text-xs text-slate-400">בחר תו כדי לערוך את כתב היד שלו</p>
+          <p className="text-xs text-slate-400">בחר תו לעריכת 3–5 וריאציות כתב-יד</p>
         </div>
         <div className="text-left">
           <div className="flex items-center gap-2">
@@ -72,7 +81,8 @@ export const CharacterGrid: React.FC<CharacterGridProps> = ({
       <div className="grid grid-cols-6 sm:grid-cols-7 md:grid-cols-9 gap-2 max-h-[300px] overflow-y-auto pr-1">
         {filtered.map(charDef => {
           const isSelected = charDef.id === selectedCharId;
-          const isDrawn = characters[charDef.id]?.strokes?.length > 0;
+          const vCount = getVariationCount(charDef.id);
+          const isDrawn = vCount > 0;
 
           return (
             <button
@@ -92,8 +102,15 @@ export const CharacterGrid: React.FC<CharacterGridProps> = ({
               </span>
 
               {isDrawn && (
-                <span className="absolute top-1 left-1 w-3.5 h-3.5 bg-emerald-500 rounded-full flex items-center justify-center text-[9px] text-slate-950 font-bold">
-                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                <span
+                  className={`absolute top-1 left-1 px-1 min-w-[15px] h-[15px] rounded-full flex items-center justify-center text-[9px] font-black ${
+                    vCount >= 3
+                      ? 'bg-emerald-500 text-slate-950'
+                      : 'bg-amber-500 text-slate-950'
+                  }`}
+                  title={`${vCount} וריאציות צוירו לאות זו`}
+                >
+                  {vCount > 1 ? vCount : <Check className="w-2.5 h-2.5 stroke-[3]" />}
                 </span>
               )}
             </button>
