@@ -11,7 +11,7 @@ import {
   Sigma,
 } from 'lucide-react';
 import mammoth from 'mammoth';
-import { parseDocumentBlocks } from '../utils/latexParser';
+import { parseDocumentBlocks, SUPERSCRIPT_MAP } from '../utils/latexParser';
 import { HandwrittenMath } from './HandwrittenMath';
 
 interface NotebookPreviewProps {
@@ -246,13 +246,34 @@ $$\\nabla \\times \\vec{E} = -\\frac{\\partial \\vec{B}}{\\partial t}$$
                             const rot = humanJitter ? ((seed % 7) - 3) * 0.32 : 0;
                             const offsetY = humanJitter ? ((seed % 5) - 2) * 0.32 : 0;
 
+                            const isSup = Boolean(SUPERSCRIPT_MAP[char]);
+                            const actualChar = isSup ? SUPERSCRIPT_MAP[char] : char;
+
                             const variantIdx = variantCount > 1
-                              ? (((seed * 31 + char.charCodeAt(0)) % variantCount) + 1)
+                              ? (((seed * 31 + actualChar.charCodeAt(0)) % variantCount) + 1)
                               : 1;
 
                             const charFont = fontLoaded
                               ? `'${fontFamily}_V${variantIdx}', '${fontFamily}', 'Rubik', sans-serif`
                               : "'Rubik', sans-serif";
+
+                            if (isSup) {
+                              return (
+                                <span
+                                  key={charIndex}
+                                  style={{
+                                    display: 'inline-block',
+                                    fontFamily: charFont,
+                                    fontSize: '0.62em',
+                                    transform: `translateY(-0.48em) rotate(${rot}deg)`,
+                                    transformOrigin: 'bottom center',
+                                    marginLeft: '1px',
+                                  }}
+                                >
+                                  {actualChar}
+                                </span>
+                              );
+                            }
 
                             return (
                               <span

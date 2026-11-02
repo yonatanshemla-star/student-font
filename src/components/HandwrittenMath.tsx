@@ -92,14 +92,14 @@ const MathNodeRenderer: React.FC<NodeRendererProps> = ({
       return <span style={{ width: `${node.width}px`, display: 'inline-block' }} />;
     }
 
-    // Fraction (\frac{num}{den})
+    // Fraction (\frac{num}{den} - מונה ומכנה בכתב יד)
     case 'frac': {
-      const subFontSize = Math.max(14, Math.round(fontSize * 0.88));
+      const subFontSize = Math.max(12, Math.round(fontSize * 0.84));
 
       return (
-        <span className="inline-flex flex-col items-center mx-1.5 align-middle">
-          {/* Numerator */}
-          <span className="px-1 text-center pb-0.5">
+        <span className="inline-flex flex-col items-center mx-1.5 align-middle select-text relative">
+          {/* Numerator (מונה) */}
+          <span className="px-1 text-center pb-0.5 flex justify-center w-full">
             <HandwrittenMath
               nodes={node.num}
               fontFamily={fontFamily}
@@ -109,23 +109,25 @@ const MathNodeRenderer: React.FC<NodeRendererProps> = ({
             />
           </span>
 
-          {/* Hand-drawn Wobbly Fraction Bar (SVG) */}
-          <svg
-            className="w-full overflow-visible"
-            height="4"
-            style={{ minWidth: '24px' }}
-          >
-            <path
-              d="M 1 2 Q 12 1.2, 24 2.2 T 48 2"
-              fill="none"
-              stroke={inkColor}
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-          </svg>
+          {/* Hand-drawn Responsive Wobbly Fraction Bar (קו שבר ידני נמתח) */}
+          <div className="w-full relative my-0.5 flex items-center justify-center" style={{ minWidth: '18px', height: '3px' }}>
+            <svg
+              className="w-full h-full overflow-visible"
+              preserveAspectRatio="none"
+              viewBox="0 0 100 4"
+            >
+              <path
+                d="M 1 2 Q 25 1.2, 50 2.2 T 99 2"
+                fill="none"
+                stroke={inkColor}
+                strokeWidth="2.2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
 
-          {/* Denominator */}
-          <span className="px-1 text-center pt-0.5">
+          {/* Denominator (מכנה) */}
+          <span className="px-1 text-center pt-0.5 flex justify-center w-full">
             <HandwrittenMath
               nodes={node.den}
               fontFamily={fontFamily}
@@ -200,12 +202,12 @@ const MathNodeRenderer: React.FC<NodeRendererProps> = ({
       );
     }
 
-    // Subscripts and Superscripts (x^2, x_i, x_i^2)
+    // Subscripts and Superscripts (חזקות ואינדקסים x^2, x_i, x_i^2)
     case 'supsub': {
-      const scriptFontSize = Math.max(12, Math.round(fontSize * 0.68));
+      const scriptFontSize = Math.max(11, Math.round(fontSize * 0.62));
 
       return (
-        <span className="inline-flex items-baseline relative">
+        <span className="inline-flex items-baseline relative mx-0.5 align-baseline">
           {node.base && (
             <HandwrittenMath
               nodes={node.base}
@@ -216,12 +218,16 @@ const MathNodeRenderer: React.FC<NodeRendererProps> = ({
             />
           )}
 
-          {/* Scripts column */}
-          <span className="inline-flex flex-col -space-y-1 align-baseline -mr-0.5">
+          {/* Scripts column: renders handwritten power / index directly to the right of the base in smaller size */}
+          <span className="inline-flex flex-col align-baseline ml-0.5 relative" style={{ verticalAlign: 'baseline' }}>
             {node.sup && (
               <span
-                className="transform -translate-y-2.5 font-medium"
-                style={{ fontSize: `${scriptFontSize}px` }}
+                className="font-medium inline-block select-text"
+                style={{
+                  fontSize: `${scriptFontSize}px`,
+                  transform: 'translateY(-0.48em)',
+                  lineHeight: 1,
+                }}
               >
                 <HandwrittenMath
                   nodes={node.sup}
@@ -235,8 +241,12 @@ const MathNodeRenderer: React.FC<NodeRendererProps> = ({
 
             {node.sub && (
               <span
-                className="transform translate-y-1.5 font-medium"
-                style={{ fontSize: `${scriptFontSize}px` }}
+                className="font-medium inline-block select-text"
+                style={{
+                  fontSize: `${scriptFontSize}px`,
+                  transform: 'translateY(0.38em)',
+                  lineHeight: 1,
+                }}
               >
                 <HandwrittenMath
                   nodes={node.sub}
