@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { PenTool, BookOpen, Sparkles, Settings, RefreshCw, Wand2, Info } from 'lucide-react';
+import { PenTool, BookOpen, Sparkles, Settings, RefreshCw, Wand2, Info, Layers } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 import type { CharacterDef, CharacterData, Stroke } from './types';
-import { HEBREW_CHARACTERS } from './utils/characterSet';
+import { ALL_CHARACTERS, getActiveCharacters } from './utils/characterSet';
 import { DrawingCanvas } from './components/DrawingCanvas';
 import { CharacterGrid } from './components/CharacterGrid';
 import { NotebookPreview } from './components/NotebookPreview';
 import { ExportModal } from './components/ExportModal';
+import { PackageModal } from './components/PackageModal';
 import { buildAndRegisterAllVariants } from './utils/fontBuilder';
 import { generateDemoCharacters } from './utils/demoHandwriting';
 
@@ -15,8 +16,30 @@ export const App: React.FC = () => {
   // Navigation Tabs
   const [activeTab, setActiveTab] = useState<'studio' | 'notebook'>('studio');
 
+  // Character Packages State (Hebrew, Final, Numbers, Punctuation, Math, Greek, English)
+  const [enabledPackages, setEnabledPackages] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('student_font_packages');
+      return saved ? JSON.parse(saved) : ['hebrew', 'final', 'number', 'punct', 'math', 'greek'];
+    } catch {
+      return ['hebrew', 'final', 'number', 'punct', 'math', 'greek'];
+    }
+  });
+
+  const [isPackageModalOpen, setIsPackageModalOpen] = useState<boolean>(false);
+
+  // Active characters based on enabled packages
+  const activeCharacters = getActiveCharacters(enabledPackages);
+
   // Currently selected character in studio
-  const [selectedChar, setSelectedChar] = useState<CharacterDef>(HEBREW_CHARACTERS[0]);
+  const [selectedChar, setSelectedChar] = useState<CharacterDef>(() => activeCharacters[0] || ALL_CHARACTERS[0]);
+
+  // Ensure selected character is in activeCharacters
+  useEffect(() => {
+    if (!activeCharacters.some(c => c.id === selectedChar.id) && activeCharacters.length > 0) {
+      setSelectedChar(activeCharacters[0]);
+    }
+  }, [enabledPackages, activeCharacters, selectedChar.id]);
 
   // Active variation index for selected character (0 to 4)
   const [activeVariationIndex, setActiveVariationIndex] = useState<number>(0);
@@ -50,9 +73,25 @@ export const App: React.FC = () => {
     }
   }, [characters]);
 
+  // Save packages to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('student_font_packages', JSON.stringify(enabledPackages));
+    } catch (e) {
+      console.warn('LocalStorage save failed:', e);
+    }
+  }, [enabledPackages]);
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleTogglePackage = (pkgId: string) => {
+    if (pkgId === 'hebrew') return; // Hebrew is locked base
+    setEnabledPackages(prev =>
+      prev.includes(pkgId) ? prev.filter(id => id !== pkgId) : [...prev, pkgId]
+    );
   };
 
   // Generate Font Engine (Multi-Variant!)
@@ -110,7 +149,7 @@ export const App: React.FC = () => {
 
     const demo = generateDemoCharacters();
     setCharacters(demo);
-    showToast('נטענו 3 וריאציות מלאות לכל אות (א-ת, סופיות, ספרות)!');
+    showToast('נטענו 3 וריאציות מלאות לדוגמה (א-ת, סופיות, ספרות, פיסוק)!');
 
     // Auto generate all 3 font variants from demo immediately
     setTimeout(async () => {
@@ -143,20 +182,20 @@ export const App: React.FC = () => {
   };
 
   // Navigation between characters
-  const currentIndex = HEBREW_CHARACTERS.findIndex(c => c.id === selectedChar.id);
-  const hasNext = currentIndex < HEBREW_CHARACTERS.length - 1;
+  const currentIndex = activeCharacters.findIndex(c => c.id === selectedChar.id);
+  const hasNext = currentIndex < activeCharacters.length - 1;
   const hasPrev = currentIndex > 0;
 
   const handleNext = () => {
     if (hasNext) {
-      setSelectedChar(HEBREW_CHARACTERS[currentIndex + 1]);
+      setSelectedChar(activeCharacters[currentIndex + 1]);
       setActiveVariationIndex(0);
     }
   };
 
   const handlePrev = () => {
     if (hasPrev) {
-      setSelectedChar(HEBREW_CHARACTERS[currentIndex - 1]);
+      setSelectedChar(activeCharacters[currentIndex - 1]);
       setActiveVariationIndex(0);
     }
   };
@@ -320,12 +359,21 @@ export const App: React.FC = () => {
           {/* Top Actions */}
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setIsPackageModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-indigo-300 text-xs font-semibold transition"
+              title="בחר חבילות תווים (אנגלית, מתמטיקה, יוונית)"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>חבילות ({activeCharacters.length})</span>
+            </button>
+
+            <button
               onClick={handleLoadDemo}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition"
               title="טען 3 וריאציות מלאות לדוגמה"
             >
               <Wand2 className="w-3.5 h-3.5 text-indigo-400" />
-              <span className="hidden sm:inline">טען כתב לדוגמה (3 וריאציות)</span>
+              <span className="hidden sm:inline">כתב לדוגמה</span>
             </button>
 
             <button
@@ -334,7 +382,7 @@ export const App: React.FC = () => {
               className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>{isGenerating ? 'מפיק פונט...' : 'הפק פונט עכשיו'}</span>
+              <span>{isGenerating ? 'מפיק...' : 'הפק פונט'}</span>
             </button>
 
             <button
@@ -389,6 +437,8 @@ export const App: React.FC = () => {
                   setActiveVariationIndex(0);
                 }}
                 characters={characters}
+                activeCharacters={activeCharacters}
+                onOpenPackageModal={() => setIsPackageModalOpen(true)}
               />
 
               {/* Tips for Students Card */}
@@ -399,8 +449,8 @@ export const App: React.FC = () => {
                 </div>
                 <ul className="list-disc list-inside space-y-1">
                   <li><strong>וריאציות (3–5):</strong> צייר כל אות 3–5 פעמים בצורות מעט שונות. המערכת תערבב אותן באקראי כך שלא יהיו שתי אותיות זהות!</li>
-                  <li><strong>עט סטיילוס ואייפד:</strong> המערכת קולטת את חוזק הלחיצה (Pressure) ומשנה את עובי הקו ברציפות.</li>
-                  <li><strong>מניעת מגע יד (Palm Rejection):</strong> הדלק את הכפתור בלוח הציור כדי להניח את היד על המסך בחופשיות.</li>
+                  <li><strong>חבילות מודולריות:</strong> לחץ על כפתור <strong>'חבילות'</strong> כדי להוסיף או להסתיר תווים של מתמטיקה, יוונית ואנגלית.</li>
+                  <li><strong>עט ואייפד:</strong> מנוע הדיו מזהה לחץ (Pressure) ומחליק תנועות מהירות באופן קליגרפי.</li>
                 </ul>
               </div>
             </div>
@@ -420,6 +470,15 @@ export const App: React.FC = () => {
       <footer className="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500">
         <span>פרויקט סטודנט-פונט • הפקת פונט אמיתי (TrueType .TTF) עם 3–5 וריאציות לאות</span>
       </footer>
+
+      {/* Package Selector Modal */}
+      <PackageModal
+        isOpen={isPackageModalOpen}
+        onClose={() => setIsPackageModalOpen(false)}
+        enabledPackages={enabledPackages}
+        onTogglePackage={handleTogglePackage}
+        totalActiveCharacters={activeCharacters.length}
+      />
 
       {/* Export / Settings Modal */}
       <ExportModal

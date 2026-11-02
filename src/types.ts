@@ -11,7 +11,7 @@ export interface CharacterDef {
   char: string;
   name: string;
   unicode: number;
-  category: 'hebrew' | 'final' | 'number' | 'punct';
+  category: 'hebrew' | 'final' | 'number' | 'punct' | 'math' | 'greek' | 'english';
   sampleHint?: string;
   defaultAdvanceWidth?: number;
 }

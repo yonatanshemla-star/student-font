@@ -12,6 +12,7 @@
   "dependencies": {
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^1.66.0",
+    "mammoth": "^1.13.0",
     "opentype.js": "^2.0.0",
     "perfect-freehand": "^1.2.3",
     "react": "^19.3.1",

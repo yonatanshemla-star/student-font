@@ -1,22 +1,39 @@
 import React, { useState } from 'react';
 import type { CharacterDef, CharacterData } from '../types';
-import { HEBREW_CHARACTERS, CATEGORIES } from '../utils/characterSet';
-import { Check } from 'lucide-react';
+import { Check, Settings2 } from 'lucide-react';
 
 interface CharacterGridProps {
   selectedCharId: string;
   onSelectChar: (char: CharacterDef) => void;
   characters: Record<string, CharacterData>;
+  activeCharacters: CharacterDef[];
+  onOpenPackageModal: () => void;
 }
+
+const CATEGORY_LABELS: Record<string, string> = {
+  all: 'הכל',
+  hebrew: 'עברית א-ת',
+  final: 'סופיות',
+  number: 'ספרות',
+  punct: 'פיסוק וסוגריים',
+  math: 'מתמטיקה',
+  greek: 'יוונית',
+  english: 'אנגלית',
+};
 
 export const CharacterGrid: React.FC<CharacterGridProps> = ({
   selectedCharId,
   onSelectChar,
   characters,
+  activeCharacters,
+  onOpenPackageModal,
 }) => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
 
-  const filtered = HEBREW_CHARACTERS.filter(
+  // Available categories present in activeCharacters
+  const availableCategories = ['all', ...Array.from(new Set(activeCharacters.map(c => c.category)))];
+
+  const filtered = activeCharacters.filter(
     c => activeCategory === 'all' || c.category === activeCategory
   );
 
@@ -29,21 +46,32 @@ export const CharacterGrid: React.FC<CharacterGridProps> = ({
     return data.strokes && data.strokes.length > 0 ? 1 : 0;
   };
 
-  const completedCount = HEBREW_CHARACTERS.filter(
+  const completedCount = activeCharacters.filter(
     c => getVariationCount(c.id) > 0
   ).length;
 
-  const totalCount = HEBREW_CHARACTERS.length;
-  const progressPercent = Math.round((completedCount / totalCount) * 100);
+  const totalCount = activeCharacters.length;
+  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   return (
     <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 backdrop-blur-md shadow-xl">
       {/* Header & Progress */}
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-base font-bold text-white">רשימת האותיות והתווים</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-base font-bold text-white">רשימת האותיות והתווים</h3>
+            <button
+              onClick={onOpenPackageModal}
+              className="flex items-center gap-1 text-[11px] font-semibold text-indigo-300 bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-700/50 px-2 py-0.5 rounded-lg transition"
+              title="הוסף או הסר חבילות של מתמטיקה, יוונית ואנגלית"
+            >
+              <Settings2 className="w-3 h-3" />
+              <span>חבילות</span>
+            </button>
+          </div>
           <p className="text-xs text-slate-400">בחר תו לעריכת 3–5 וריאציות כתב-יד</p>
         </div>
+
         <div className="text-left">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-300">
@@ -62,23 +90,23 @@ export const CharacterGrid: React.FC<CharacterGridProps> = ({
 
       {/* Category Pills */}
       <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-none">
-        {CATEGORIES.map(cat => (
+        {availableCategories.map(cat => (
           <button
-            key={cat.id}
-            onClick={() => setActiveCategory(cat.id)}
+            key={cat}
+            onClick={() => setActiveCategory(cat)}
             className={`px-3 py-1 text-xs font-medium rounded-xl whitespace-nowrap transition ${
-              activeCategory === cat.id
+              activeCategory === cat
                 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
                 : 'bg-slate-700/60 text-slate-300 hover:bg-slate-700'
             }`}
           >
-            {cat.label}
+            {CATEGORY_LABELS[cat] || cat}
           </button>
         ))}
       </div>
 
       {/* Character Grid */}
-      <div className="grid grid-cols-6 sm:grid-cols-7 md:grid-cols-9 gap-2 max-h-[300px] overflow-y-auto pr-1">
+      <div className="grid grid-cols-6 sm:grid-cols-7 md:grid-cols-9 gap-2 max-h-[320px] overflow-y-auto pr-1">
         {filtered.map(charDef => {
           const isSelected = charDef.id === selectedCharId;
           const vCount = getVariationCount(charDef.id);

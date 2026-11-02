@@ -1,4 +1,4 @@
-import type { CharacterData, Stroke } from '../types';
+import type { CharacterDef, CharacterData, Stroke } from '../types';
 import { HEBREW_CHARACTERS } from './characterSet';
 
 // Helper to smooth / interpolate a few points
@@ -63,7 +63,7 @@ export function generateDemoCharacters(): Record<string, CharacterData> {
   const demo: Record<string, CharacterData> = {};
 
   const add = (id: string, baseStrokes: Stroke[]) => {
-    const def = HEBREW_CHARACTERS.find(c => c.id === id);
+    const def = HEBREW_CHARACTERS.find((c: CharacterDef) => c.id === id);
     if (!def) return;
 
     const var1 = baseStrokes;
