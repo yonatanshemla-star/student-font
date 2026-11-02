@@ -12,6 +12,7 @@ import {
   PenTool,
   ShieldAlert,
 } from 'lucide-react';
+import { getStroke } from 'perfect-freehand';
 import type { CharacterDef, Point, Stroke } from '../types';
 import {
   CANVAS_SIZE,
@@ -73,7 +74,7 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     setCurrentStroke([]);
   }, [character.id, activeVariationIndex]);
 
-  // Redraw canvas
+  // Redraw canvas with silky-smooth perfect-freehand outlines
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -136,38 +137,47 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       ctx.fillText(character.char, CANVAS_SIZE / 2, CANVAS_BASELINE);
     }
 
-    // Dynamic Pressure-sensitive stroke renderer
+    // Calligraphic smooth vector stroke renderer via perfect-freehand
     const drawStroke = (stroke: Stroke) => {
-      if (stroke.length === 0) return;
+      if (!stroke || stroke.length === 0) return;
+
+      const inputPoints = stroke.map(p => ({
+        x: p.x,
+        y: p.y,
+        pressure: p.pressure !== undefined ? p.pressure : 0.5,
+      }));
+
+      const outline = getStroke(inputPoints, {
+        size: strokeWidth,
+        thinning: 0.35,
+        smoothing: 0.65,
+        streamline: 0.45,
+        simulatePressure: false,
+        start: { taper: 0, cap: true },
+        end: { taper: 0, cap: true },
+      });
 
       ctx.fillStyle = '#f8fafc';
-      ctx.strokeStyle = '#f8fafc';
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
 
-      if (stroke.length === 1) {
-        const p = stroke[0];
-        const pFactor = 0.4 + (p.pressure || 0.5) * 1.2;
-        const r = Math.max((strokeWidth / 2) * pFactor, 2);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        ctx.fill();
+      if (!outline || outline.length < 3) {
+        if (stroke.length === 1) {
+          ctx.beginPath();
+          ctx.arc(stroke[0].x, stroke[0].y, Math.max(strokeWidth / 2, 2), 0, Math.PI * 2);
+          ctx.fill();
+        }
         return;
       }
 
-      // Draw segments with variable width
-      for (let i = 1; i < stroke.length; i++) {
-        const p1 = stroke[i - 1];
-        const p2 = stroke[i];
-        const pressure = p2.pressure ?? 0.5;
-        const currentLineWidth = Math.max(3, strokeWidth * (0.35 + pressure * 1.3));
-
-        ctx.lineWidth = currentLineWidth;
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
+      ctx.beginPath();
+      const first = outline[0];
+      ctx.moveTo(first[0], first[1]);
+      for (let i = 0; i < outline.length; i++) {
+        const [x0, y0] = outline[i];
+        const [x1, y1] = outline[(i + 1) % outline.length];
+        ctx.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
       }
+      ctx.closePath();
+      ctx.fill();
     };
 
     // Draw saved strokes
@@ -194,14 +204,13 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   }, [redraw]);
 
   // Pointer position & pressure calculation
-  const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement>): Point => {
+  const getCanvasPoint = (e: React.PointerEvent<HTMLCanvasElement> | PointerEvent): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const scaleX = CANVAS_SIZE / rect.width;
     const scaleY = CANVAS_SIZE / rect.height;
 
-    // Stylus / Apple Pencil pressure (0.0 to 1.0)
     let pressure = e.pressure;
     if (e.pointerType === 'pen' && (pressure === undefined || pressure === 0)) {
       pressure = 0.5;
@@ -210,12 +219,11 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
     return {
       x: (e.clientX - rect.left) * scaleX,
       y: (e.clientY - rect.top) * scaleY,
-      pressure: pressure !== undefined ? pressure : 0.5,
+      pressure: pressure !== undefined && pressure > 0 ? pressure : 0.5,
     };
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    // Palm Rejection: If enabled and stylus is in use, ignore touch/finger events
     if (palmRejection && e.pointerType === 'touch') {
       return;
     }
@@ -233,6 +241,18 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawing) return;
     if (palmRejection && e.pointerType === 'touch') return;
+
+    // Use coalesced events if available for ultra-smooth iPad stylus polling
+    const native = e.nativeEvent as PointerEvent;
+    if (native && typeof native.getCoalescedEvents === 'function') {
+      const coalesced = native.getCoalescedEvents();
+      if (coalesced && coalesced.length > 0) {
+        const points = coalesced.map(ev => getCanvasPoint(ev));
+        setCurrentStroke(prev => [...prev, ...points]);
+        return;
+      }
+    }
+
     const p = getCanvasPoint(e);
     setCurrentStroke(prev => [...prev, p]);
   };

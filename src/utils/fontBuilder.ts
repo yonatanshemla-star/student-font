@@ -1,5 +1,6 @@
 import opentype from 'opentype.js';
-import type { CharacterData, FontSettings, Point, Stroke } from '../types';
+import { getStroke } from 'perfect-freehand';
+import type { CharacterData, FontSettings, Stroke } from '../types';
 
 export const CANVAS_SIZE = 400;
 export const CANVAS_BASELINE = 290;
@@ -14,148 +15,54 @@ const DEFAULT_SETTINGS: FontSettings = {
   ascender: 800,
   descender: -250,
   strokeWidth: 8,
-  usePressureSensitivity: true,
 };
 
 /**
- * Approximate a circle contour centered at (cx, cy) with radius R
- */
-function addCircleToPath(path: opentype.Path, cx: number, cy: number, r: number) {
-  const k = r * 0.55228475; // Cubic bezier constant for circular arc
-  path.moveTo(cx + r, cy);
-  path.bezierCurveTo(cx + r, cy + k, cx + k, cy + r, cx, cy + r);
-  path.bezierCurveTo(cx - k, cy + r, cx - r, cy + k, cx - r, cy);
-  path.bezierCurveTo(cx - r, cy - k, cx - k, cy - r, cx, cy - r);
-  path.bezierCurveTo(cx + k, cy - r, cx + r, cy - k, cx + r, cy);
-  path.close();
-}
-
-/**
- * Converts a sequence of strokes on canvas into an OpenType Path
- * Supports dynamic pressure sensitivity per vertex for stylus/Apple Pencil!
+ * Converts strokes to a silky-smooth OpenType Path using perfect-freehand outline contours
  */
 export function strokesToOpenTypePath(
   strokes: Stroke[],
   baseStrokeWidth: number,
   scale: number,
   minX: number,
-  leftBearing: number,
-  enablePressure = true
+  leftBearing: number
 ): opentype.Path {
   const path = new opentype.Path();
-  const baseRadius = (baseStrokeWidth / 2) * scale;
-
-  // Coordinate transform helpers
   const toFontX = (x: number) => (x - minX) * scale + leftBearing;
   const toFontY = (y: number) => (CANVAS_BASELINE - y) * scale;
 
   for (const rawStroke of strokes) {
     if (!rawStroke || rawStroke.length === 0) continue;
 
-    // Filter consecutive duplicate / very close points
-    const pts: Point[] = [];
-    for (const p of rawStroke) {
-      if (pts.length === 0) {
-        pts.push(p);
-      } else {
-        const last = pts[pts.length - 1];
-        const distSq = (p.x - last.x) ** 2 + (p.y - last.y) ** 2;
-        if (distSq >= 2) {
-          pts.push(p);
-        }
-      }
-    }
-
-    if (pts.length === 0) continue;
-
-    // Single point (dot / point)
-    if (pts.length === 1) {
-      const p = pts[0];
-      const pFactor = enablePressure ? (0.4 + (p.pressure || 0.5) * 1.2) : 1;
-      const radius = Math.max(baseRadius * pFactor, 12);
-      const fx = toFontX(p.x);
-      const fy = toFontY(p.y);
-      addCircleToPath(path, fx, fy, radius);
-      continue;
-    }
-
-    // Polyline stroke -> Closed polygon ribbon with round caps and variable radius
-    const n = pts.length;
-    const fontPts = pts.map(p => ({
-      x: toFontX(p.x),
-      y: toFontY(p.y),
-      pressure: p.pressure ?? 0.5,
+    const inputPoints = rawStroke.map(p => ({
+      x: p.x,
+      y: p.y,
+      pressure: p.pressure !== undefined ? p.pressure : 0.5,
     }));
 
-    const leftBoundary: Point[] = [];
-    const rightBoundary: Point[] = [];
-    const radii: number[] = [];
+    // Generate calligraphic fluid outline
+    const outline = getStroke(inputPoints, {
+      size: baseStrokeWidth,
+      thinning: 0.35,
+      smoothing: 0.6,
+      streamline: 0.45,
+      simulatePressure: false,
+      start: { taper: 0, cap: true },
+      end: { taper: 0, cap: true },
+    });
 
-    for (let i = 0; i < n; i++) {
-      let dx = 0;
-      let dy = 0;
+    if (!outline || outline.length < 3) continue;
 
-      if (i === 0) {
-        dx = fontPts[1].x - fontPts[0].x;
-        dy = fontPts[1].y - fontPts[0].y;
-      } else if (i === n - 1) {
-        dx = fontPts[n - 1].x - fontPts[n - 2].x;
-        dy = fontPts[n - 1].y - fontPts[n - 2].y;
-      } else {
-        dx = fontPts[i + 1].x - fontPts[i - 1].x;
-        dy = fontPts[i + 1].y - fontPts[i - 1].y;
-      }
+    const [fx0, fy0] = outline[0];
+    path.moveTo(toFontX(fx0), toFontY(fy0));
 
-      const len = Math.hypot(dx, dy) || 1;
-      const nx = -dy / len;
-      const ny = dx / len;
-
-      const p = fontPts[i];
-      // Modulate radius by stylus pressure
-      const pFactor = enablePressure ? Math.max(0.35, Math.min(1.7, 0.4 + p.pressure * 1.2)) : 1.0;
-      const localRadius = baseRadius * pFactor;
-      radii.push(localRadius);
-
-      leftBoundary.push({ x: p.x + nx * localRadius, y: p.y + ny * localRadius });
-      rightBoundary.push({ x: p.x - nx * localRadius, y: p.y - ny * localRadius });
+    for (let i = 0; i < outline.length; i++) {
+      const [x0, y0] = outline[i];
+      const [x1, y1] = outline[(i + 1) % outline.length];
+      const midX = (x0 + x1) / 2;
+      const midY = (y0 + y1) / 2;
+      path.quadraticCurveTo(toFontX(x0), toFontY(y0), toFontX(midX), toFontY(midY));
     }
-
-    // Begin path outline: start cap -> left side -> end cap -> right side -> close
-    path.moveTo(leftBoundary[0].x, leftBoundary[0].y);
-
-    for (let i = 1; i < leftBoundary.length; i++) {
-      path.lineTo(leftBoundary[i].x, leftBoundary[i].y);
-    }
-
-    // End cap (semicircle around last point)
-    const endCenter = fontPts[n - 1];
-    const endRight = rightBoundary[n - 1];
-    const endRadius = radii[n - 1];
-    
-    const endDirX = (fontPts[n - 1].x - fontPts[n - 2].x);
-    const endDirY = (fontPts[n - 1].y - fontPts[n - 2].y);
-    const endLen = Math.hypot(endDirX, endDirY) || 1;
-    const endTipX = endCenter.x + (endDirX / endLen) * endRadius;
-    const endTipY = endCenter.y + (endDirY / endLen) * endRadius;
-
-    path.bezierCurveTo(endTipX, endTipY, endTipX, endTipY, endRight.x, endRight.y);
-
-    // Return along right boundary
-    for (let i = rightBoundary.length - 1; i >= 0; i--) {
-      path.lineTo(rightBoundary[i].x, rightBoundary[i].y);
-    }
-
-    // Start cap (semicircle around first point back to leftBoundary[0])
-    const startCenter = fontPts[0];
-    const startRadius = radii[0];
-    const startDirX = (fontPts[0].x - fontPts[1].x);
-    const startDirY = (fontPts[0].y - fontPts[1].y);
-    const startLen = Math.hypot(startDirX, startDirY) || 1;
-    const startTipX = startCenter.x + (startDirX / startLen) * startRadius;
-    const startTipY = startCenter.y + (startDirY / startLen) * startRadius;
-
-    path.bezierCurveTo(startTipX, startTipY, startTipX, startTipY, leftBoundary[0].x, leftBoundary[0].y);
-
     path.close();
   }
 
@@ -257,8 +164,7 @@ export function buildFont(
       settings.strokeWidth,
       scale,
       minX,
-      leftBearing,
-      settings.usePressureSensitivity ?? true
+      leftBearing
     );
 
     const glyphName = `uni${charData.unicode.toString(16).toUpperCase().padStart(4, '0')}`;
@@ -300,7 +206,6 @@ export async function buildAndRegisterAllVariants(
 ): Promise<{ variantCount: number; blobUrls: string[] }> {
   const blobUrls: string[] = [];
 
-  // Determine how many variations exist across characters
   let activeVariants = 1;
   for (const charData of Object.values(characters)) {
     const vCount = charData.variations ? charData.variations.filter(v => v && v.length > 0).length : (charData.strokes?.length ? 1 : 0);
@@ -318,10 +223,8 @@ export async function buildAndRegisterAllVariants(
     );
     blobUrls.push(blobUrl);
 
-    // Register into document.fonts
     await registerFontFace(variantFamily, arrayBuffer);
     if (i === 0) {
-      // Also register as V1 for uniform indexing
       await registerFontFace(`${baseFamilyName}_V1`, arrayBuffer);
     }
   }
