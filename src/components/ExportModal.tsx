@@ -13,6 +13,8 @@ interface ExportModalProps {
   onGenerateFont: () => void;
   strokeWidth: number;
   onStrokeWidthChange: (w: number) => void;
+  spacingDensity?: 'tight' | 'balanced' | 'relaxed';
+  onSpacingDensityChange?: (density: 'tight' | 'balanced' | 'relaxed') => void;
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
@@ -26,6 +28,8 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   onGenerateFont,
   strokeWidth,
   onStrokeWidthChange,
+  spacingDensity = 'tight',
+  onSpacingDensityChange,
 }) => {
   if (!isOpen) return null;
 
@@ -104,6 +108,34 @@ export const ExportModal: React.FC<ExportModalProps> = ({
               className="w-full accent-indigo-500 cursor-pointer h-2 bg-slate-800 rounded-lg"
             />
           </div>
+
+          {onSpacingDensityChange && (
+            <div>
+              <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-1.5">
+                <span>צפיפות אותיות וצמצום מרווחים אוטומטי במילים:</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'tight', label: 'צמוד (מומלץ לכתב יד)' },
+                  { id: 'balanced', label: 'מאוזן' },
+                  { id: 'relaxed', label: 'מרווח' },
+                ].map(opt => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onSpacingDensityChange(opt.id as 'tight' | 'balanced' | 'relaxed')}
+                    className={`py-1.5 px-2 rounded-xl text-xs font-medium border transition ${
+                      spacingDensity === opt.id
+                        ? 'bg-indigo-600 border-indigo-400 text-white shadow-md'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Action 1: Download TTF */}

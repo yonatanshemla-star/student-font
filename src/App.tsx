@@ -57,6 +57,7 @@ export const App: React.FC = () => {
   // Font settings
   const [fontName, setFontName] = useState<string>('MyHandwriting');
   const [strokeWidth, setStrokeWidth] = useState<number>(8);
+  const [spacingDensity, setSpacingDensity] = useState<'tight' | 'balanced' | 'relaxed'>('tight');
   const [fontBlobUrl, setFontBlobUrl] = useState<string | null>(null);
   const [fontLoaded, setFontLoaded] = useState<boolean>(false);
   const [variantCount, setVariantCount] = useState<number>(1);
@@ -115,7 +116,8 @@ export const App: React.FC = () => {
         characters,
         fontName || 'MyHandwriting',
         strokeWidth,
-        5
+        5,
+        { spacingDensity }
       );
 
       setFontBlobUrl(blobUrls[0] || null);
@@ -158,7 +160,8 @@ export const App: React.FC = () => {
           demo,
           fontName || 'MyHandwriting',
           strokeWidth,
-          5
+          5,
+          { spacingDensity }
         );
         setFontBlobUrl(blobUrls[0]);
         setVariantCount(builtVariants);
@@ -492,6 +495,8 @@ export const App: React.FC = () => {
         onGenerateFont={handleGenerateFont}
         strokeWidth={strokeWidth}
         onStrokeWidthChange={setStrokeWidth}
+        spacingDensity={spacingDensity}
+        onSpacingDensityChange={setSpacingDensity}
       />
     </div>
   );

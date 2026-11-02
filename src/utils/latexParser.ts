@@ -83,6 +83,22 @@ export const GREEK_AND_SYMBOLS: Record<string, string> = {
   cap: '∩',
   forall: '∀',
   exists: '∃',
+  emptyset: '∅',
+  ll: '≪',
+  gg: '≫',
+  propto: '∝',
+  degree: '°',
+  circ: '°',
+  angle: '∠',
+  prime: '′',
+  dprime: '″',
+  iint: '∬',
+  iiint: '∭',
+  oint: '∮',
+  perp: '⊥',
+  parallel: '∥',
+  implies: '⇒',
+  iff: '⇔',
 };
 
 /**

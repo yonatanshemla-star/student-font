@@ -11,6 +11,7 @@ import {
   Copy,
   PenTool,
   ShieldAlert,
+  Crop,
 } from 'lucide-react';
 import { getStroke } from 'perfect-freehand';
 import type { CharacterDef, Point, Stroke } from '../types';
@@ -20,6 +21,7 @@ import {
   CANVAS_CAP_HEIGHT,
   CANVAS_ASCENDER,
   CANVAS_DESCENDER,
+  computeStrokesBoundingBox,
 } from '../utils/fontBuilder';
 
 interface DrawingCanvasProps {
@@ -61,11 +63,13 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
   const [undoStack, setUndoStack] = useState<Stroke[][]>([]);
   const [redoStack, setRedoStack] = useState<Stroke[][]>([]);
   const [showGhost, setShowGhost] = useState(true);
+  const [showBounds, setShowBounds] = useState(true);
   const [palmRejection, setPalmRejection] = useState(false); // iPad Apple Pencil Palm Rejection
   const [isPenDetected, setIsPenDetected] = useState(false);
 
   // Current active strokes
   const currentStrokes = variations[activeVariationIndex] || [];
+  const currentBBox = computeStrokesBoundingBox(currentStrokes, strokeWidth);
 
   // Reset undo/redo when character or variation changes
   useEffect(() => {
@@ -188,8 +192,42 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
       drawStroke(currentStroke);
     }
 
+    // Dynamic tight bounding box guidelines (Automatic kerning & bounds detection)
+    const allStrokes = currentStroke.length > 0 ? [...currentStrokes, currentStroke] : currentStrokes;
+    const bbox = computeStrokesBoundingBox(allStrokes, strokeWidth);
+    if (showBounds && bbox && bbox.width > 2) {
+      // Soft background tint for the detected glyph width
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.05)';
+      ctx.fillRect(bbox.minX, 20, bbox.width, CANVAS_SIZE - 40);
+
+      // Tight bounding dashed borders
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+
+      ctx.beginPath();
+      ctx.moveTo(bbox.minX, 15);
+      ctx.lineTo(bbox.minX, CANVAS_SIZE - 15);
+      ctx.moveTo(bbox.maxX, 15);
+      ctx.lineTo(bbox.maxX, CANVAS_SIZE - 15);
+      ctx.stroke();
+
+      // Top and bottom boundary markers
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+      ctx.lineWidth = 2;
+
+      // Small tick marks at top left/right
+      ctx.beginPath();
+      ctx.moveTo(bbox.minX - 4, 15);
+      ctx.lineTo(bbox.minX + 4, 15);
+      ctx.moveTo(bbox.maxX - 4, 15);
+      ctx.lineTo(bbox.maxX + 4, 15);
+      ctx.stroke();
+    }
+
     ctx.restore();
-  }, [currentStrokes, currentStroke, showGhost, strokeWidth, character]);
+  }, [currentStrokes, currentStroke, showGhost, showBounds, strokeWidth, character]);
 
   // Canvas scaling
   useEffect(() => {
@@ -479,6 +517,24 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
             <span className="w-2.5 h-0.5 bg-rose-400 inline-block rounded" /> יורדות (ן,ך,ק)
           </span>
         </div>
+
+        {/* Dynamic Tight Bounding Box Info Card */}
+        {currentBBox && (
+          <div className="flex items-center justify-between w-full mt-2.5 px-3.5 py-2 bg-slate-900/90 border border-sky-500/30 rounded-2xl text-[11px] text-slate-300 backdrop-blur-md shadow-md animate-fade-in">
+            <div className="flex items-center gap-2">
+              <Crop className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+              <div>
+                <span className="font-bold text-sky-300 ml-1">זיהוי גבולות אוטומטי:</span>
+                <span className="text-slate-300">
+                  רוחב נטו {Math.round(currentBBox.width)}px
+                </span>
+              </div>
+            </div>
+            <span className="text-[10px] text-emerald-400 bg-emerald-950/70 border border-emerald-600/40 px-2 py-0.5 rounded-full font-medium">
+              צמצום מרווח במילים פעיל
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Controls & iPad Palm Rejection Toolbar */}
@@ -513,6 +569,16 @@ export const DrawingCanvas: React.FC<DrawingCanvasProps> = ({
 
         {/* Action Buttons */}
         <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowBounds(!showBounds)}
+            className={`p-2 rounded-xl transition ${
+              showBounds ? 'bg-sky-600/30 text-sky-300 border border-sky-500/40' : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700'
+            }`}
+            title={showBounds ? 'הסתר גבולות אות מחושבים' : 'הצג גבולות אות מחושבים וצמצום מרווחים'}
+          >
+            <Crop className="w-4 h-4" />
+          </button>
+
           <button
             onClick={() => setShowGhost(!showGhost)}
             className={`p-2 rounded-xl transition ${

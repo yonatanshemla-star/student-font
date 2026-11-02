@@ -33,4 +33,6 @@ export interface FontSettings {
   descender: number;
   strokeWidth: number;
   usePressureSensitivity?: boolean;
+  spacingDensity?: 'tight' | 'balanced' | 'relaxed';
+  sideBearing?: number;
 }

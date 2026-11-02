@@ -34,7 +34,7 @@ export const NotebookPreview: React.FC<NotebookPreviewProps> = ({
   const [inkColor, setInkColor] = useState<string>('#1d4ed8'); // Classic blue pen
   const [fontSize, setFontSize] = useState<number>(24);
   const [lineHeight, setLineHeight] = useState<number>(36);
-  const [letterSpacing, setLetterSpacing] = useState<number>(1);
+  const [letterSpacing, setLetterSpacing] = useState<number>(0);
   const [humanJitter, setHumanJitter] = useState<boolean>(true);
   const [copied, setCopied] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
@@ -196,38 +196,83 @@ $$\\nabla \\times \\vec{E} = -\\frac{\\partial \\vec{B}}{\\partial t}$$
             );
           }
 
-          // Plain text block with organic human jitter
+          // Plain text block with organic human jitter & word-level binding
           if (block.content === '\n') {
             return <div key={bIdx} style={{ height: `${lineHeight}px` }}>&nbsp;</div>;
           }
 
+          const lines = block.content.split('\n');
+
           return (
             <span key={bIdx}>
-              {block.content.split('').map((char, charIndex) => {
-                const seed = (bIdx * 37 + charIndex * 19) % 100;
-                const rot = humanJitter ? ((seed % 7) - 3) * 0.35 : 0;
-                const offsetY = humanJitter ? ((seed % 5) - 2) * 0.4 : 0;
+              {lines.map((line, lIdx) => {
+                if (line === '' && lines.length > 1) {
+                  return <div key={lIdx} style={{ height: `${lineHeight * 0.7}px` }}>&nbsp;</div>;
+                }
 
-                const variantIdx = variantCount > 1
-                  ? (((bIdx * 31 + charIndex * 17 + char.charCodeAt(0)) % variantCount) + 1)
-                  : 1;
-
-                const charFont = fontLoaded
-                  ? `'${fontFamily}_V${variantIdx}', '${fontFamily}', 'Rubik', sans-serif`
-                  : "'Rubik', sans-serif";
+                // Split line into words and whitespace separators
+                const tokens = line.split(/(\s+)/);
 
                 return (
-                  <span
-                    key={charIndex}
-                    style={{
-                      display: 'inline-block',
-                      fontFamily: charFont,
-                      transform: rot || offsetY ? `rotate(${rot}deg) translateY(${offsetY}px)` : undefined,
-                      transformOrigin: 'bottom center',
-                    }}
-                  >
-                    {char === ' ' ? '\u00A0' : char}
-                  </span>
+                  <React.Fragment key={lIdx}>
+                    {tokens.map((token, tIdx) => {
+                      if (/^\s+$/.test(token)) {
+                        // Word space separator: clear, dedicated spacing between separate words
+                        return (
+                          <span
+                            key={tIdx}
+                            style={{
+                              display: 'inline-block',
+                              width: `${Math.max(fontSize * 0.32, 7)}px`,
+                            }}
+                          >
+                            &nbsp;
+                          </span>
+                        );
+                      }
+
+                      // Cohesive Word Container: Letters inside this word sit tightly together
+                      return (
+                        <span
+                          key={tIdx}
+                          className="inline-block whitespace-nowrap"
+                          style={{
+                            letterSpacing: `${letterSpacing}px`,
+                          }}
+                        >
+                          {token.split('').map((char, charIndex) => {
+                            const globalCharIdx = bIdx * 50 + lIdx * 20 + tIdx * 10 + charIndex;
+                            const seed = (globalCharIdx * 19 + char.charCodeAt(0)) % 100;
+                            const rot = humanJitter ? ((seed % 7) - 3) * 0.32 : 0;
+                            const offsetY = humanJitter ? ((seed % 5) - 2) * 0.32 : 0;
+
+                            const variantIdx = variantCount > 1
+                              ? (((seed * 31 + char.charCodeAt(0)) % variantCount) + 1)
+                              : 1;
+
+                            const charFont = fontLoaded
+                              ? `'${fontFamily}_V${variantIdx}', '${fontFamily}', 'Rubik', sans-serif`
+                              : "'Rubik', sans-serif";
+
+                            return (
+                              <span
+                                key={charIndex}
+                                style={{
+                                  display: 'inline-block',
+                                  fontFamily: charFont,
+                                  transform: rot || offsetY ? `rotate(${rot}deg) translateY(${offsetY}px)` : undefined,
+                                  transformOrigin: 'bottom center',
+                                }}
+                              >
+                                {char}
+                              </span>
+                            );
+                          })}
+                        </span>
+                      );
+                    })}
+                    {lIdx < lines.length - 1 && <br />}
+                  </React.Fragment>
                 );
               })}
             </span>
@@ -482,14 +527,18 @@ $$\\nabla \\times \\vec{E} = -\\frac{\\partial \\vec{B}}{\\partial t}$$
                   />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 block mb-0.5">רווח ({letterSpacing}px):</span>
+                  <span className="text-[11px] text-slate-400 block mb-0.5">
+                    צפיפות אותיות במילה ({letterSpacing > 0 ? `+${letterSpacing}` : letterSpacing}px):
+                  </span>
                   <input
                     type="range"
-                    min={0}
-                    max={8}
+                    min={-3}
+                    max={5}
+                    step={0.5}
                     value={letterSpacing}
                     onChange={e => setLetterSpacing(Number(e.target.value))}
                     className="w-full accent-indigo-500 cursor-pointer h-1.5 bg-slate-700 rounded-lg"
+                    title="שליטה במרווח בין אותיות בתוך מילה - ערך שלילי מצמיד את האותיות"
                   />
                 </div>
               </div>

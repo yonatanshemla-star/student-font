@@ -8,6 +8,15 @@ export const CANVAS_CAP_HEIGHT = 120;
 export const CANVAS_ASCENDER = 60;
 export const CANVAS_DESCENDER = 360;
 
+export interface BoundingBox {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  width: number;
+  height: number;
+}
+
 const DEFAULT_SETTINGS: FontSettings = {
   familyName: 'כתב יד אישי',
   styleName: 'Regular',
@@ -15,7 +24,50 @@ const DEFAULT_SETTINGS: FontSettings = {
   ascender: 800,
   descender: -250,
   strokeWidth: 8,
+  spacingDensity: 'tight',
+  sideBearing: 16,
 };
+
+/**
+ * Computes tight bounding box of drawn ink including stroke radius
+ */
+export function computeStrokesBoundingBox(
+  strokes: Stroke[],
+  baseStrokeWidth: number
+): BoundingBox | null {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let hasPoints = false;
+
+  const halfWidth = Math.max(baseStrokeWidth / 2, 2);
+
+  for (const stroke of strokes) {
+    if (!stroke || stroke.length === 0) continue;
+    for (const p of stroke) {
+      hasPoints = true;
+      const r = halfWidth * (p.pressure !== undefined ? Math.max(0.4, p.pressure) : 0.75);
+      if (p.x - r < minX) minX = p.x - r;
+      if (p.x + r > maxX) maxX = p.x + r;
+      if (p.y - r < minY) minY = p.y - r;
+      if (p.y + r > maxY) maxY = p.y + r;
+    }
+  }
+
+  if (!hasPoints || !isFinite(minX) || !isFinite(maxX)) {
+    return null;
+  }
+
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width: Math.max(0, maxX - minX),
+    height: Math.max(0, maxY - minY),
+  };
+}
 
 /**
  * Converts strokes to a silky-smooth OpenType Path using perfect-freehand outline contours
@@ -34,11 +86,20 @@ export function strokesToOpenTypePath(
   for (const rawStroke of strokes) {
     if (!rawStroke || rawStroke.length === 0) continue;
 
-    const inputPoints = rawStroke.map(p => ({
+    let inputPoints = rawStroke.map(p => ({
       x: p.x,
       y: p.y,
       pressure: p.pressure !== undefined ? p.pressure : 0.5,
     }));
+
+    // If single point (dot / punctuation), create mini-segment so freehand can generate a circular cap
+    if (inputPoints.length === 1) {
+      const p = inputPoints[0];
+      inputPoints = [
+        { x: p.x - 0.4, y: p.y - 0.4, pressure: p.pressure },
+        { x: p.x + 0.4, y: p.y + 0.4, pressure: p.pressure },
+      ];
+    }
 
     // Generate calligraphic fluid outline
     const outline = getStroke(inputPoints, {
@@ -95,9 +156,9 @@ function createNotdefGlyph(): opentype.Glyph {
 }
 
 /**
- * Creates space glyph
+ * Creates space glyph (clear separation between words)
  */
-function createSpaceGlyph(width = 380): opentype.Glyph {
+function createSpaceGlyph(width = 300): opentype.Glyph {
   return new opentype.Glyph({
     name: 'space',
     unicode: 32,
@@ -125,7 +186,7 @@ export function getStrokesForVariation(charData: CharacterData, variationIndex: 
 }
 
 /**
- * Build a TrueType font for a specific variation index
+ * Build a TrueType font for a specific variation index with tight bounding box & auto-kerning
  */
 export function buildFont(
   characters: Record<string, CharacterData>,
@@ -141,29 +202,47 @@ export function buildFont(
     const strokes = getStrokesForVariation(charData, variationIndex);
     if (!strokes || strokes.length === 0) continue;
 
-    // Find bounding box
-    let minX = Infinity;
-    let maxX = -Infinity;
+    // Detect exact tight bounding box of ink
+    const bbox = computeStrokesBoundingBox(strokes, settings.strokeWidth);
+    if (!bbox) continue;
 
-    for (const stroke of strokes) {
-      for (const p of stroke) {
-        if (p.x < minX) minX = p.x;
-        if (p.x > maxX) maxX = p.x;
-      }
+    // Side bearings based on density
+    let leftBearing = typeof settings.sideBearing === 'number' ? settings.sideBearing : 16;
+    let rightBearing = typeof settings.sideBearing === 'number' ? settings.sideBearing : 16;
+
+    if (settings.spacingDensity === 'relaxed') {
+      leftBearing = 36;
+      rightBearing = 36;
+    } else if (settings.spacingDensity === 'balanced') {
+      leftBearing = 24;
+      rightBearing = 24;
+    } else if (settings.spacingDensity === 'tight') {
+      leftBearing = 16;
+      rightBearing = 16;
     }
 
-    if (!isFinite(minX) || !isFinite(maxX)) continue;
+    // Punctuation and naturally narrow glyphs get even more compact side-bearings
+    const isPunctuationOrNarrow = [
+      46, 44, 58, 59, 33, 63, 39, 34, 45, 95, 124, 47, 92, 40, 41, 91, 93, 123, 125,
+      1493, 1497, 1503, // ו, י, ן
+      105, 108, 116, 106, // i, l, t, j
+    ].includes(charData.unicode);
 
-    const leftBearing = 60;
-    const rightBearing = 60;
-    const drawnWidth = (maxX - minX) * scale;
-    const advanceWidth = Math.max(320, Math.round(drawnWidth + leftBearing + rightBearing));
+    if (isPunctuationOrNarrow) {
+      leftBearing = Math.max(6, Math.round(leftBearing * 0.6));
+      rightBearing = Math.max(6, Math.round(rightBearing * 0.6));
+    }
+
+    const drawnWidth = bbox.width * scale;
+    // Auto-cropped advance width: ink width + tight side bearings (no artificial 320px bloating!)
+    const calculatedAdvance = Math.max(36, Math.round(leftBearing + drawnWidth + rightBearing));
+    const advanceWidth = charData.advanceWidth || calculatedAdvance;
 
     const path = strokesToOpenTypePath(
       strokes,
       settings.strokeWidth,
       scale,
-      minX,
+      bbox.minX,
       leftBearing
     );
 
@@ -172,7 +251,7 @@ export function buildFont(
     const glyph = new opentype.Glyph({
       name: glyphName,
       unicode: charData.unicode,
-      advanceWidth: charData.advanceWidth || advanceWidth,
+      advanceWidth,
       path,
     });
 
@@ -202,7 +281,8 @@ export async function buildAndRegisterAllVariants(
   characters: Record<string, CharacterData>,
   baseFamilyName: string,
   strokeWidth: number,
-  maxVariations = 5
+  maxVariations = 5,
+  customSettings?: Partial<FontSettings>
 ): Promise<{ variantCount: number; blobUrls: string[] }> {
   const blobUrls: string[] = [];
 
@@ -218,7 +298,7 @@ export async function buildAndRegisterAllVariants(
     const variantFamily = i === 0 ? baseFamilyName : `${baseFamilyName}_V${i + 1}`;
     const { arrayBuffer, blobUrl } = buildFont(
       characters,
-      { familyName: variantFamily, strokeWidth },
+      { familyName: variantFamily, strokeWidth, ...customSettings },
       i
     );
     blobUrls.push(blobUrl);
